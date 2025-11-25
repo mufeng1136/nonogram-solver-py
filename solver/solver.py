@@ -249,3 +249,85 @@ class NonogramSolver:
             self.rows_possible[i][self.rows_possible_index[i]] for i in range(self.row)
         ]
         return solution
+
+    def print_solution(
+        self,
+        as_chars: bool = True,
+        cell_width: int = 3,
+        show_row_clues: bool = True,
+        show_col_clues: bool = True,
+        show_row_numbers: bool = True,
+    ) -> None:
+        """Print the solved nonogram to stdout in a nicely formatted way.
+
+        Shows column clues vertically above the grid, row clues to the left,
+        optional row numbers, and ensures equal column width.
+
+        Args:
+            as_chars: If True, prints using `#` for filled and `.` for empty.
+                      If False, prints numeric 1/0.
+            cell_width: width in characters for each cell (default 3).
+            show_row_clues: whether to print row clues at left.
+            show_col_clues: whether to print column clues above.
+            show_row_numbers: whether to print row numbers at left.
+        """
+        if not self.solved:
+            raise RuntimeError("Puzzle not solved yet. Call solve() first.")
+
+        solution = self.get_solution()
+
+        # Prepare row clues and column clues
+        row_clues = self.row_clues or [[] for _ in range(self.row)]
+        col_clues = self.col_clues or [[] for _ in range(self.col)]
+
+        # Compute widths for left area
+        rownum_width = len(str(self.row)) if show_row_numbers else 0
+        row_clue_texts = [" ".join(map(str, rc)) for rc in row_clues]
+        row_clue_width = (
+            max((len(t) for t in row_clue_texts), default=0) if show_row_clues else 0
+        )
+        left_pad = 0
+        if show_row_numbers:
+            left_pad += rownum_width + 1  # number + space
+        if show_row_clues:
+            left_pad += row_clue_width + 1  # clues + space
+
+        # Prepare column clues matrix (top to bottom)
+        max_col_clue_h = max((len(c) for c in col_clues), default=0)
+        col_clue_matrix = []
+        for c in col_clues:
+            padded = [""] * (max_col_clue_h - len(c)) + [str(x) for x in c]
+            col_clue_matrix.append(padded)
+
+        def format_cell(v: int) -> str:
+            if as_chars:
+                ch = "#" if v == 1 else "."
+            else:
+                ch = str(v)
+            # center in cell_width
+            return ch.center(cell_width)
+
+        # Print column clues
+        if show_col_clues and max_col_clue_h > 0:
+            for r in range(max_col_clue_h):
+                line = " " * left_pad
+                parts = []
+                for j in range(self.col):
+                    val = col_clue_matrix[j][r]
+                    parts.append(val.center(cell_width))
+                line += "".join(parts)
+                print(line)
+
+        # Print grid with row numbers and row clues
+        for idx, row in enumerate(solution, start=1):
+            parts = []
+            for v in row:
+                parts.append(format_cell(v))
+
+            left = ""
+            if show_row_numbers:
+                left += str(idx).rjust(rownum_width) + " "
+            if show_row_clues:
+                left += row_clue_texts[idx - 1].rjust(row_clue_width) + " "
+
+            print(left + "".join(parts))
