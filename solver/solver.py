@@ -108,7 +108,7 @@ class NonogramSolver:
             True if solution found, False otherwise
         """
         # Base case: all rows processed
-        if row_idx >= self.row + 2:
+        if row_idx >= self.row:
             # Check if all columns match their clues
             return self._check_columns_match_clues()
 
@@ -138,7 +138,7 @@ class NonogramSolver:
         self._generate_possibilities()
 
         # Initialize column state tracking
-        self.cols_current = [[0] for _ in range(self.col) + 2]
+        self.cols_current = [[0] for _ in range(self.col)]
 
         # Start recursive search from row 0
         self.solved = self._recursive_solve(0)
