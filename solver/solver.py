@@ -1,5 +1,10 @@
 from itertools import chain
 from utils.math_utils import integer_partitions
+from itertools import groupby
+import logging
+
+# Module logger
+logger = logging.getLogger(__name__)
 
 class NonogramSolver:
     def __init__(
@@ -111,24 +116,44 @@ class NonogramSolver:
         for clue in self.row_clues:
             self.rows_possible.append(self._generate_possibilities_for_clue(clue, self.col))
         pass
-    
+
     @staticmethod
     def _check_one_column(column_current: list[int], clue: list[int]) -> bool:
         ans: bool = True
 
-        new_cc = list(filter(lambda x: x != 0, column_current))
+        new_cc = [
+            sum(1 for _ in grp) for val, grp in groupby(column_current) if val == 1
+        ]
         len_new_cc: int = len(new_cc)
         len_clue: int = len(clue)
         for i, c in enumerate(new_cc):
-            if i >= len_clue or c > clue[i]:
+            if i >= len_clue:
+                logger.debug(
+                    "no match for reason 1: runs=%s, column=%s, clue=%s",
+                    new_cc,
+                    column_current,
+                    clue,
+                )
                 return False
-            elif i == len_new_cc - 1 and c < clue[i]:
+            elif i == len_new_cc - 1 and c > clue[i]:
+                logger.debug(
+                    "no match for reason 2: runs=%s, column=%s, clue=%s",
+                    new_cc,
+                    column_current,
+                    clue,
+                )
                 return False
-            elif c != clue[i]:
+            elif i < len_new_cc - 1 and c != clue[i]:
+                logger.debug(
+                    "no match for reason 3: runs=%s, column=%s, clue=%s",
+                    new_cc,
+                    column_current,
+                    clue,
+                )
                 ans = False
-            
+
         return True
-    
+
     def _check_columns_match_clues(self) -> bool:
         for i, col in enumerate(self.cols_current):
             if not self._check_one_column(col, self.col_clues[i]):
@@ -136,12 +161,12 @@ class NonogramSolver:
         return True
 
     def _columns_step_ahead(self, row: list[int]) -> None:
-        # Placeholder for stepping columns ahead logic
-        pass
+        for i, val in enumerate(row):
+            self.cols_current[i].append(val)
 
-    def _columns_step_back(self, row: list[int]) -> None:
-        # Placeholder for stepping columns back logic
-        pass
+    def _columns_step_back(self) -> None:
+        for i in range(self.col):
+            self.cols_current[i].pop()
 
     def _recursive_solve(self, row_idx: int) -> bool:
         """Recursively solve the nonogram using backtracking.
@@ -153,24 +178,41 @@ class NonogramSolver:
             True if solution found, False otherwise
         """
         # Base case: all rows processed
+        if self.solved:
+            return False
         if row_idx >= self.row:
             # Check if all columns match their clues
-            return self._check_columns_match_clues()
+            logger.debug("Reached base case")
+            logger.debug("cols_current=%s", self.cols_current)
+            flag = self._check_columns_match_clues()
+            if flag:
+                self.solved = True
+                logger.info("Solved inside recursive")
+                logger.debug("Final cols_current: %s", self.cols_current)
+                logger.debug("Final rows_possible_index: %s", self.rows_possible_index)
+                return self._check_columns_match_clues()
+            else:
+                return False
 
         # Try each possible configuration for the current row
-        for i, possible_row in self.rows_possible[row_idx]:
+        for i, possible_row in enumerate(self.rows_possible[row_idx]):
+
             # Update column states with this row
             self._columns_step_ahead(possible_row)
             self.rows_possible_index[row_idx] = i
+            logger.debug("Trying row %s possibility %s: %s", row_idx, i, possible_row)
+            logger.debug("Current cols_current: %s", self.cols_current)
             # Check if columns are still valid
             if self._check_columns_match_clues():
                 # Recursively try next row
                 if self._recursive_solve(row_idx + 1):
+                    self.solved = True
                     return True
 
             # Backtrack: undo column changes
-            self._columns_step_back(possible_row)
-
+            else:
+                self._columns_step_back()
+        self._columns_step_back()
         return False
 
     def solve(self) -> None:
@@ -190,3 +232,20 @@ class NonogramSolver:
 
         if not self.solved:
             raise RuntimeError("No solution found for the given clues.")
+
+    def get_solution(self) -> list[list[int]]:
+        """Retrieve the solved nonogram grid.
+
+        Returns:
+            A 2D list representing the solved grid, where 1 indicates filled cells and 0 indicates empty cells.
+
+        Raises:
+            RuntimeError: If the puzzle has not been solved yet.
+        """
+        if not self.solved:
+            raise RuntimeError("Puzzle not solved yet. Call solve() first.")
+
+        solution = [
+            self.rows_possible[i][self.rows_possible_index[i]] for i in range(self.row)
+        ]
+        return solution
