@@ -1,4 +1,7 @@
+# exmaple.py
+
 from solver import NonogramSolver
+from solver import NonogramSolverV2
 
 row_clues = [
     [6],
@@ -25,11 +28,21 @@ col_clues = [
     [1],
 ]
 
+# ----try dfs-----
 MySolver = NonogramSolver(
     row=10,
     col=10,
     row_clues=row_clues,
     col_clues=col_clues,
 )
+
+# ---- or try smarter method-----
+# MySolver = NonogramSolverV2(
+#     row=10,
+#     col=10,
+#     row_clues=row_clues,
+#     col_clues=col_clues,
+# )
+
 MySolver.solve()
 MySolver.print_solution()
