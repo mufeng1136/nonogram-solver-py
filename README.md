@@ -1,5 +1,4 @@
-# Nonogram Solver
-
+# Nonogram Solver [outdated]
 [中文文档](#项目简介)
 
 ## Introduction
@@ -103,7 +102,7 @@ MIT License
 
 ---
 
-## Nonogram Solver (中文)
+## Nonogram Solver (中文)【该文件已过时】
 
 ## 项目简介
 
