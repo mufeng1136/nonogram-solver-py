@@ -1,5 +1,6 @@
 from solver import NonogramSolver
 from solver import NonogramSolverV2
+from solver import NonogramSolverV3
 
 row_clues = [
     [4, 6, 3, 5],

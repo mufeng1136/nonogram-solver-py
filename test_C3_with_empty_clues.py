@@ -21,5 +21,4 @@ MySolver = NonogramSolverV2(
     col_clues=col_clues,
 )
 MySolver.solve()
-# 该样例下有输出BUG，先不管
 MySolver.print_solution()

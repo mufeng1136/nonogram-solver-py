@@ -570,3 +570,379 @@ class NonogramSolverV2(NonogramSolver):
         else:
             # Puzzle solved
             return True
+
+    def get_solution(self) -> list[list[int]]:
+        return self.solve_result
+
+class NonogramSolverV3(NonogramSolverV2):
+    def __init__(
+            self,
+            row: int,
+            col: int,
+            row_clues: list[list[int]] | None = None,
+            col_clues: list[list[int]] | None = None,
+    ):
+        super().__init__(row, col, row_clues, col_clues)
+
+        # Solution grid where: 1 = filled cell, 0 = empty cell, -1 = uncertain
+        # The first layer is rows, and the second layer is cells within rows
+        self.solve_result: list[list[int]] = [[-1] * col for _ in range(row)]
+
+        # self.cols_possible: list[list[list[int]]] = []
+
+        # del self.cols_current
+        del self.cols_possible
+        del self.rows_possible
+        del self.rows_possible_index
+
+    def solve(self) -> None:
+        # 该方法的重要假设为：能够确定的格子的状态空间数量远小于无法确定状态的格子。
+        # 因此在计算可能性时，不罗列所有情况，而是直接判断格子是否能被确定
+        # 在单行/列穷举时，遇到不合理情况批量跳过
+        # 为此需要：
+        # ①一个函数，能够根据该行（列）的线索和已经确定的格子判断新确定格子
+        #       判断方法：针对某格子，查找其能确定和不能确定的样例。各找到一个说明无法确定，找不到说明该格子颜色已确定
+        # ②为了实现①，需要函数，能够遍历格子排布。遍历方法：将所有可能性看成一个链，从前往后遍历
+
+        # ===========创新点==============
+        # 你提出的是一个非常高级的剪枝优化策略，用于在
+        # _has_possible_state
+        # 中跳过大量无效的
+        # inter
+        # 组合，而不是简单地逐一枚举。
+        #
+        # 这种技术称为 “冲突驱动的跳跃”（conflict - driven
+        # skipping），在
+        # Nonogram
+        # 求解器中属于高效推理的核心技巧。
+
+        self.check_ready()
+        if not self.ready_to_solve:
+            raise RuntimeError("Solver is not ready. Please check clues and grid size.")
+
+        # Start solve
+        self.solved = self._solve_by_iterative_line_reasoning()
+
+        if not self.solved:
+            raise RuntimeError("No solution found for the given clues.")
+
+        return
+
+    def _solve_by_iterative_line_reasoning(self) -> bool:
+        """
+        Solve the nonogram by iteratively applying line-wise logical deduction.
+
+        Procedure:
+            - Repeatedly refresh all rows, then all columns.
+            - Stop when a full iteration (rows + cols) makes no changes.
+            - Return True if fully solved (no -1 remains), False otherwise.
+
+        Raises:
+            ValueError: If contradiction is found in any line.
+        """
+        changed = True
+        iteration_count = 0
+        max_iterations = self.row * self.col + 10  # safety bound
+
+        while changed and iteration_count < max_iterations:
+            changed = False
+            iteration_count += 1
+
+            # --- Phase 1: Refresh all rows ---
+            for i in range(self.row):
+                original_row = self.solve_result[i].copy()
+                clue = self.row_clues[i]
+                new_row = self._refresh_line_solution(
+                    line_solution=original_row,
+                    grid_num=self.col,
+                    clue=clue
+                )
+                # Update in-place if changed
+                if new_row != original_row:
+                    self.solve_result[i] = new_row
+                    changed = True
+
+            # --- Phase 2: Refresh all columns ---
+            for j in range(self.col):
+                # Extract current column
+                original_col = [self.solve_result[i][j] for i in range(self.row)]
+                clue = self.col_clues[j]
+                new_col = self._refresh_line_solution(
+                    line_solution=original_col,
+                    grid_num=self.row,
+                    clue=clue
+                )
+                # Write back if changed
+                if new_col != original_col:
+                    for i in range(self.row):
+                        self.solve_result[i][j] = new_col[i]
+                    changed = True
+
+            # Early exit if fully solved
+            if all(cell != -1 for row in self.solve_result for cell in row):
+                return True
+
+        # After loop, check final state
+        fully_solved = all(cell != -1 for row in self.solve_result for cell in row)
+        return fully_solved
+
+    @staticmethod
+    def _refresh_line_solution(line_solution: list[int], grid_num: int, clue: list[int]) -> list[int] :
+        # 更新solution状态
+        solution_copy = line_solution.copy()
+
+        # 逐个检查格子，能否找到两个可行解
+        for i_grid in range(grid_num):
+            if solution_copy[i_grid] != -1:
+                continue
+            # 该格子状态不确定
+
+            # 查找其为空是否有解
+            solution_copy[i_grid] = 0
+            is_empty_valid = NonogramSolverV3._has_possible_state(solution_copy,grid_num,clue)
+
+            # 查找其为实是否有解
+            solution_copy[i_grid] = 1
+            is_filled_valid = NonogramSolverV3._has_possible_state(solution_copy,grid_num,clue)
+
+            # 结论
+            if is_empty_valid and is_filled_valid:
+                solution_copy[i_grid]= -1
+            elif is_empty_valid:
+                solution_copy[i_grid] = 0
+            elif is_filled_valid:
+                solution_copy[i_grid] = 1
+            else:
+                raise ValueError("Single grid iteration error")
+
+        return solution_copy
+
+    @staticmethod
+    def _has_possible_state(solution: list[int], grid_num: int, clue: list[int]) -> bool:
+        """
+        Check if there exists at least one valid state matching the clue
+        that is compatible with the current partial solution.
+
+        In `solution`:
+            - 1 = filled (must be 1 in candidate)
+            - 0 = empty (must be 0 in candidate)
+            - -1 = unknown (can be 0 or 1)
+        """
+        if len(solution) != grid_num:
+            raise ValueError("solution length must equal grid_num")
+
+        clue_num = len(clue)
+
+        # Case: no clues → must be all empty
+        if clue_num == 0:
+            return all(cell != 1 for cell in solution)
+
+        min_required = sum(clue) + (clue_num - 1)
+        if min_required > grid_num:
+            return False  # impossible to fit
+
+        total_extra_max = grid_num - min_required  # >=0
+        k = clue_num
+
+        # Start with inter = [0] * k
+        inter = [0] * k
+
+        while True:
+            # Only consider if sum(inter) <= total_extra_max
+            if sum(inter) <= total_extra_max:
+
+                expected_val = None
+
+                try:
+                    state = NonogramSolverV3._get_state_from_clue_and_inter(clue, inter, grid_num)
+                    # Check compatibility
+                    compatible = True
+                    for i_grid in range(grid_num):
+                        if solution[i_grid] != -1 and solution[i_grid] != state[i_grid]:
+                            compatible = False
+                            conflict_index = i_grid
+                            expected_val = solution[i_grid]
+                            break
+                    if compatible:
+                        return True
+                except Exception:
+                    pass  # skip invalid
+
+                # --- Apply intelligent skipping based on conflict ---
+                if expected_val == 0:
+                    # Constraint is EMPTY, but state has FILLED at conflict_index
+                    # Find which block contains conflict_index
+                    # Reconstruct block positions from inter and clue
+                    pos = NonogramSolverV3._inter2pos(clue, inter)
+
+                    # Find the rightmost block that ends <= conflict_index
+                    idx_clue = next((i for i in reversed(range(len(pos))) if pos[i] <= conflict_index), -1)
+
+                    # Move this block to the right so conflict_index becomes empty
+                    right_move_grid = conflict_index + 1 - pos[idx_clue]
+                    inter[idx_clue] += right_move_grid
+
+                    # 其他块间距为0
+                    inter[idx_clue+1:] = [0] * (len(inter) - (idx_clue+1) )
+
+                    # 如果移动后inter总和已经超过最大值，则可以判断不存在合理state。
+                    if sum(inter)>total_extra_max:
+                        return False
+
+                elif expected_val == 1:
+                    # Constraint is FILLED, but state has EMPTY at conflict_index
+                    # Compute block end positions
+                    pos = NonogramSolverV3._inter2pos(clue,inter)
+
+                    # Find the rightmost block that ends < conflict_index
+                    idx_clue = next((i for i in reversed(range(len(pos))) if pos[i] < conflict_index), -1)
+
+                    # 如果i_grid左侧已没有填充块，则直接人为不存在合理state
+                    if idx_clue < 0:
+                        return False
+
+                    # 左侧右移，直至右端符合条件
+                    right_move_grid = conflict_index - (pos[idx_clue]+clue[idx_clue]-1)
+                    inter[idx_clue] += right_move_grid
+
+                    # 其他块间距为0
+                    inter[idx_clue+1:] = [0] * (len(inter) - (idx_clue+1) )
+
+                    # 如果移动后inter总和已经超过最大值，则可以判断不存在合理state。
+                    if sum(inter)>total_extra_max:
+                        return False
+            else:
+                #============ simple +1 =================
+                # Generate next inter: increment like a counter from right
+                pos = k - 1
+                while pos >= 0:
+                    inter[pos] += 1
+                    # If after increment, total sum already exceeds, we need to carry
+                    if sum(inter) <= total_extra_max:
+                        break  # valid, stop incrementing
+                    else:
+                        # Overflow: reset this digit to 0 and carry to left
+                        inter[pos] = 0
+                        pos -= 1
+                else:
+                    # pos < 0: all digits overflowed → done
+                    break
+
+
+
+        return False
+
+    @staticmethod
+    def _inter2pos(_clue: list[int], _inter: list[int]) -> list[int]:
+        """
+        Compute the starting index of each block given clue and inter-gap increments.
+
+        Args:
+            _clue: List of block lengths, e.g., [2, 1, 3]
+            _inter: List of extra spaces for the first len(_clue) gaps:
+                    - _inter[0]: extra spaces before the first block
+                    - _inter[i] for i>=1: extra spaces in the gap between block (i-1) and block i
+
+        Returns:
+            A list of starting indices for each block.
+            Example: _clue=[2,1], _inter=[1,0] → blocks start at [1, 1+2+1+0 = 4] → [1, 4]
+        """
+        if not _clue:
+            return []
+
+        k = len(_clue)
+        if len(_inter) != k:
+            raise ValueError(f"_inter must have length {k} (same as clue), got {len(_inter)}")
+
+        starts = []
+        current_pos = _inter[0]  # leading extra spaces
+
+        for i in range(k):
+            starts.append(current_pos)
+            # Add current block length
+            current_pos += _clue[i]
+            # Add mandatory gap (1 zero) + extra gap (if not last block)
+            if i < k - 1:
+                current_pos += 1 + _inter[i + 1]
+
+        return starts
+
+
+    @staticmethod
+    def _get_state_from_clue_and_inter(_clue: list[int], _inter: list[int], _grid_num: int) -> list[int]:
+        """
+        Generate a row/column state from a clue and extra spaces in the first k gaps.
+
+        The last gap's extra space is inferred from the total length.
+
+        Args:
+            _clue: List of block lengths (e.g., [1, 2, 3])
+            _inter: List of extra spaces for the first len(_clue) gaps.
+                    - _inter[0]: extra before first block
+                    - _inter[i] for i>=1: extra in the gap after block i (between block i and i+1)
+                    Length must be len(_clue).
+            _grid_num: Total length of the row/column.
+
+        Returns:
+            A list of 0s and 1s of length _grid_num.
+        """
+        if not _clue:
+            return [0] * _grid_num
+
+        k = len(_clue)
+        if len(_inter) != k:
+            raise ValueError(f"_inter must have length {k} (same as clue), got {len(_inter)}")
+        if any(x < 0 for x in _inter):
+            raise ValueError("_inter must contain non-negative integers")
+
+        min_required = sum(_clue) + (k - 1)  # k-1 mandatory single zeros between blocks
+        if min_required > _grid_num:
+            raise ValueError("Clue cannot fit in given grid length")
+
+        total_extra = _grid_num - min_required
+        used_extra = sum(_inter)
+        if used_extra > total_extra:
+            raise ValueError(f"Sum of _inter ({used_extra}) exceeds available extra spaces ({total_extra})")
+
+        last_extra = total_extra - used_extra  # extra spaces after last block
+
+        # Build the pattern
+        parts = [[0] * _inter[0]]
+        # Gap before first block: only extra (no mandatory zero)
+        # Blocks and intermediate gaps
+        for i in range(k):
+            parts.append([1] * _clue[i])
+            # After block i, if not last block: add mandatory 1 zero + extra from _inter[i+1]
+            if i < k - 1:
+                parts.append([0] * (1 + _inter[i + 1]))
+        # Final gap after last block
+        parts.append([0] * last_extra)
+
+        result = [cell for part in parts for cell in part]
+        assert len(result) == _grid_num, f"Generated length {len(result)} != {_grid_num}"
+        return result
+
+    def _get_col_result(self, col_num: int) -> list[int]:
+        """Extract the current state of a column from solve_result.
+
+        Args:
+            col_num: Column index (0-based)
+
+        Returns:
+            A list representing the column state, where each element is -1 (uncertain), 0 (empty), or 1 (filled).
+        """
+        return [self.solve_result[row][col_num] for row in range(self.row)]
+
+    def _get_row_result(self, row_num: int) -> list[int]:
+        """Extract the current state of a row from solve_result.
+
+        Args:
+            row_num: Row index (0-based)
+
+        Returns:
+            A list representing the row state, where each element is -1 (uncertain), 0 (empty), or 1 (filled).
+        """
+        return self.solve_result[row_num]
+
+    # def _states_chain(self):
+
